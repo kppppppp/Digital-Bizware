@@ -13,10 +13,14 @@
     "dev:admin": "npm --workspace @classes/admin run dev",
     "dev:backend": "npm --workspace @classes/backend run dev",
     "build": "npm --workspace @classes/shared run build && npm --workspace @classes/backend run build && npm --workspace @classes/frontend run build && npm --workspace @classes/admin run build",
+    "build:backend": "npm --workspace @classes/shared run build && npm --workspace @classes/backend run build",
+    "build:frontend": "npm --workspace @classes/shared run build && npm --workspace @classes/frontend run build",
+    "build:admin": "npm --workspace @classes/shared run build && npm --workspace @classes/admin run build",
     "test": "npm --workspace @classes/backend test",
     "create-admin": "npm --workspace @classes/backend run create-admin"
   },
   "devDependencies": {
+    "@types/node": "^22.13.10",
     "concurrently": "^9.1.2",
     "typescript": "^5.8.3"
   },

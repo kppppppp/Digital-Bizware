@@ -5,6 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "prebuild": "npm --workspace @classes/shared run build",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "test": "vitest run --config vitest.config.mts",
@@ -29,7 +30,6 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@rolldown/binding-win32-x64-msvc": "^1.2.16",
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.8",
     "@types/cors": "^2.8.17",
@@ -41,5 +41,10 @@
     "tsx": "^4.19.3",
     "typescript": "^5.8.3",
     "vitest": "^5.0.5"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-darwin-arm64": "^1.2.16",
+    "@rolldown/binding-linux-x64-gnu": "^1.2.16",
+    "@rolldown/binding-win32-x64-msvc": "^1.2.16"
   }
 }
