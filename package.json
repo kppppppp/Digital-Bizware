@@ -1,0 +1,27 @@
+{
+  "name": "classes-ebook-commerce",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "admin",
+    "backend",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n backend,frontend,admin -c blue,green,yellow \"npm:dev:backend\" \"npm:dev:frontend\" \"npm:dev:admin\"",
+    "dev:frontend": "npm --workspace @classes/frontend run dev",
+    "dev:admin": "npm --workspace @classes/admin run dev",
+    "dev:backend": "npm --workspace @classes/backend run dev",
+    "build": "npm --workspace @classes/shared run build && npm --workspace @classes/backend run build && npm --workspace @classes/frontend run build && npm --workspace @classes/admin run build",
+    "test": "npm --workspace @classes/backend test",
+    "create-admin": "npm --workspace @classes/backend run create-admin"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10"
+  }
+}
