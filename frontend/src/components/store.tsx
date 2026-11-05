@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React, { createContext, useContext, useEffect, useMemo, useState, useRef, Suspense } from "react";
 import type { BookRecord, Category } from "@classes/shared";
-import { api, getBooks, money, coverUrl, API } from "@/lib/api";
+import { api, getBooks, money, coverUrl, API, setAuthToken, clearAuthToken } from "@/lib/api";
 
 type Cart = {
   items: BookRecord[];
@@ -473,7 +473,7 @@ function Footer() {
               <Link href="/student">My Library</Link>
               <Link href="/login">Customer Sign In</Link>
               <Link href="/register">Create Account</Link>
-              <Link href={process.env.NEXT_PUBLIC_ADMIN_URL || "http://localhost:3001/admin"}>
+              <Link href={process.env.NEXT_PUBLIC_ADMIN_URL || "/admin"}>
                 Admin Portal
               </Link>
             </div>
@@ -1807,6 +1807,9 @@ export function AuthPage({
         method: "POST",
         body: JSON.stringify(data),
       });
+      if (out.token) {
+        setAuthToken(out.token);
+      }
       setMessage(out.message || (register ? "Account created! Please check your email to verify your address." : ""));
       if (!register) {
         const next = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("next") : null;
@@ -1974,8 +1977,9 @@ export function TokenPage({ token }: { token: string }) {
       setStatus("Verification link is missing or expired.");
       return;
     }
-    api("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) })
-      .then(() => {
+    api<any>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) })
+      .then(res => {
+        if (res?.token) setAuthToken(res.token);
         setStatus("Your email has been verified successfully. Your account is ready.");
         setVerified(true);
       })
@@ -2107,8 +2111,12 @@ export function StudentPage() {
   }
 
   async function logout() {
-    await api("/auth/logout", { method: "POST" });
-    router.push("/");
+    try {
+      await api("/auth/logout", { method: "POST" });
+    } finally {
+      clearAuthToken();
+      router.push("/");
+    }
   }
 
   return (

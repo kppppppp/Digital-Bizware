@@ -114,7 +114,7 @@ export async function signPdfDownload(key: string, filename: string): Promise<st
   const token = `${payload}.${sig}`;
   const apiPublic = process.env.BACKEND_URL
     ? `${process.env.BACKEND_URL.replace(/\/$/, "")}/api`
-    : (process.env.API_PUBLIC_URL || "http://localhost:4000/api");
+    : (process.env.API_PUBLIC_URL || "https://digital-bizware-1.onrender.com/api");
   return `${apiPublic}/downloads/${token}?filename=${encodeURIComponent(safeName)}`;
 }
 
@@ -166,7 +166,7 @@ export async function uploadCover(buffer: Buffer, format: "png" | "jpg" | "webp"
   fs.writeFileSync(target, buffer);
   const apiPublic = process.env.BACKEND_URL
     ? `${process.env.BACKEND_URL.replace(/\/$/, "")}/api`
-    : (process.env.API_PUBLIC_URL || "http://localhost:4000/api");
+    : (process.env.API_PUBLIC_URL || "https://digital-bizware-1.onrender.com/api");
   return { url: `${apiPublic}/uploads/covers/${filename}`, publicId: `local:${filename}` };
 }
 

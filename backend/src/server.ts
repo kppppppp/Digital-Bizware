@@ -45,8 +45,22 @@ declare global {
 
 const app = express();
 const isProd = process.env.NODE_ENV === "production";
-const webOrigin = process.env.FRONTEND_URL || process.env.WEB_ORIGIN || "http://localhost:3000";
-const adminOrigin = process.env.ADMIN_URL || "http://localhost:3001";
+const rawWebOrigins = (process.env.FRONTEND_URL || process.env.WEB_ORIGIN || "http://localhost:3000")
+  .split(",")
+  .map(s => s.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+const rawAdminOrigins = (process.env.ADMIN_URL || "http://localhost:3001")
+  .split(",")
+  .map(s => s.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+const rawAllowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map(s => s.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+
+const allowedOrigins = new Set([...rawWebOrigins, ...rawAdminOrigins, ...rawAllowedOrigins]);
+const webOrigin = rawWebOrigins[0] || "http://localhost:3000";
+const adminOrigin = rawAdminOrigins[0] || "http://localhost:3001";
 const razorpay = process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
   ? new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET })
   : null;
@@ -54,20 +68,29 @@ const cookieName = "classes_session";
 
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+}));
 app.use(cors({
   origin(origin, cb) {
-    if (!origin || origin === webOrigin || origin === adminOrigin) return cb(null, true);
-    if (!isProd) {
-      try {
-        const u = new URL(origin);
-        if ((u.hostname === "localhost" || u.hostname === "127.0.0.1") && !!u.port) return cb(null, true);
-      } catch {}
-    }
+    if (!origin) return cb(null, true);
+    const normalized = origin.replace(/\/$/, "");
+    if (allowedOrigins.has(normalized)) return cb(null, true);
+    try {
+      const u = new URL(origin);
+      // Allow all Vercel deployments (production, preview, staging)
+      if (u.hostname.endsWith(".vercel.app") || u.hostname === "vercel.app") {
+        return cb(null, true);
+      }
+      // Allow local development ports
+      if (!isProd && (u.hostname === "localhost" || u.hostname === "127.0.0.1")) {
+        return cb(null, true);
+      }
+    } catch {}
     return cb(null, false);
   },
   credentials: true,
-  allowedHeaders: ["Content-Type", "X-Classes-Request"],
+  allowedHeaders: ["Content-Type", "X-Classes-Request", "Authorization"],
   methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"]
 }));
 app.use(cookieParser());
@@ -138,15 +161,24 @@ app.use(express.json({ limit: "1mb" }));
 app.use((req, res, next) => {
   if (["GET", "HEAD", "OPTIONS"].includes(req.method) || req.path === "/api/health" || req.path.startsWith("/api/downloads/")) return next();
   const origin = req.header("origin");
-  if (origin && origin !== webOrigin && origin !== adminOrigin && !(!isProd && (() => {
-    try {
-      const u = new URL(origin);
-      return (u.hostname === "localhost" || u.hostname === "127.0.0.1") && !!u.port;
-    } catch {
-      return false;
+  if (origin) {
+    const normalized = origin.replace(/\/$/, "");
+    let allowed = allowedOrigins.has(normalized);
+    if (!allowed) {
+      try {
+        const u = new URL(origin);
+        if (
+          u.hostname.endsWith(".vercel.app") ||
+          u.hostname === "vercel.app" ||
+          (!isProd && (u.hostname === "localhost" || u.hostname === "127.0.0.1"))
+        ) {
+          allowed = true;
+        }
+      } catch {}
     }
-  })())) {
-    return res.status(403).json({ error: "Request origin not allowed" });
+    if (!allowed) {
+      return res.status(403).json({ error: "Request origin not allowed" });
+    }
   }
   if (req.header("x-classes-request") !== "web") return res.status(403).json({ error: "Missing request header" });
   next();
@@ -155,7 +187,7 @@ app.use((req, res, next) => {
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 100, standardHeaders: true, legacyHeaders: false, message: { error: "Too many attempts. Please try again later." } });
 const asyncRoute = (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) => (req: Request, res: Response, next: NextFunction) => Promise.resolve(fn(req, res, next)).catch(next);
 
-const issue = async (res: Response, user: any) => {
+const issue = async (res: Response, user: any): Promise<string> => {
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + Number(process.env.SESSION_DAYS || 7) * 864e5);
   await Session.create({ userId: user._id, tokenHash: sha(token), expiresAt });
@@ -167,11 +199,14 @@ const issue = async (res: Response, user: any) => {
     expires: expiresAt,
     ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {})
   });
+  return token;
 };
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
-    const raw = req.cookies?.[cookieName];
+    const authHeader = req.header("authorization");
+    const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+    const raw = bearerToken || req.cookies?.[cookieName];
     if (!raw) return res.status(401).json({ error: "Sign in required" });
     const session = await Session.findOne({ tokenHash: sha(raw), expiresAt: { $gt: new Date() } });
     if (!session) return res.status(401).json({ error: "Session expired" });
@@ -194,10 +229,10 @@ const requireAdmin = (req: Request, res: Response, next: NextFunction) =>
 const studentAuth = [requireAuth, requireStudent];
 const adminAuth = [requireAuth, requireAdmin];
 
-const createSession = async (user: any, res: Response) => {
+const createSession = async (user: any, res: Response): Promise<string> => {
   if (!user.emailVerified) throw Object.assign(new Error("Verify your email before signing in"), { status: 403 });
   if (user.isActive === false || user.accountStatus !== "active") throw Object.assign(new Error("This account is suspended"), { status: 403 });
-  await issue(res, user);
+  return await issue(res, user);
 };
 
 async function bestEffortEmail(kind: string, task: () => Promise<void>) {
@@ -403,6 +438,33 @@ async function bootstrap() {
     }
   }
 
+  // Automatic Administrator Account Provisioning (Ensures production access on deployment)
+  const adminEmail = (process.env.ADMIN_EMAIL || "admin@gmail.com").toLowerCase().trim();
+  const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
+  const adminName = process.env.ADMIN_NAME || "Digital Bizware Admin";
+  const adminPhone = process.env.ADMIN_PHONE?.trim() || "9999999999";
+  const existingAdmin = await User.findOne({ email: adminEmail });
+  if (!existingAdmin) {
+    await User.create({
+      name: adminName,
+      email: adminEmail,
+      phone: adminPhone,
+      passwordHash: await bcrypt.hash(adminPassword, 12),
+      role: "admin",
+      emailVerified: true,
+      accountStatus: "active",
+      isActive: true,
+    });
+    console.log(`[BOOTSTRAP] Administrator account created: ${adminEmail}`);
+  } else if (existingAdmin.role !== "admin" || !existingAdmin.emailVerified || !existingAdmin.isActive) {
+    existingAdmin.role = "admin";
+    existingAdmin.emailVerified = true;
+    existingAdmin.accountStatus = "active";
+    existingAdmin.isActive = true;
+    await existingAdmin.save();
+    console.log(`[BOOTSTRAP] Administrator account verified and promoted: ${adminEmail}`);
+  }
+
   if (!r2Configured()) console.warn("Cloudflare R2 is not configured; using local storage in development");
   if (!cloudinaryConfigured()) console.warn("Cloudinary is not configured; using local storage in development");
   if (!process.env.BREVO_API_KEY) console.warn("Brevo is not configured; transactional emails are logged to console in development");
@@ -484,16 +546,16 @@ app.post("/api/auth/verify-email", authLimiter, asyncRoute(async (req, res) => {
   user.verifyTokenHash = undefined;
   user.verifyExpires = undefined;
   await user.save();
-  await issue(res, user);
-  res.json({ message: "Email verified", user: { name: user.name, email: user.email, role: user.role } });
+  const sessionToken = await issue(res, user);
+  res.json({ message: "Email verified", user: { name: user.name, email: user.email, role: user.role }, token: sessionToken });
 }));
 
 app.post("/api/auth/login", authLimiter, asyncRoute(async (req, res) => {
   const b = z.object({ email: z.string().email(), password: z.string().min(1).max(128) }).parse(req.body);
   const user = await User.findOne({ email: b.email.toLowerCase() });
   if (!user || !(await bcrypt.compare(b.password, user.passwordHash))) return res.status(401).json({ error: "Email or password is incorrect" });
-  await createSession(user, res);
-  res.json({ user: { name: user.name, email: user.email, role: user.role } });
+  const token = await createSession(user, res);
+  res.json({ user: { name: user.name, email: user.email, role: user.role }, token });
 }));
 
 app.post("/api/auth/logout", requireAuth, asyncRoute(async (req, res) => {

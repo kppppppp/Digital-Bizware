@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 import type { BookRecord } from "@classes/shared";
-import { api, money, coverUrl, API } from "@/lib/api";
+import { api, money, coverUrl, API, getAuthToken, clearAuthToken } from "@/lib/api";
 import { Cover } from "./store";
 
 export function AdminPage() {
@@ -163,8 +163,12 @@ export function AdminPage() {
   }, [user, tab, ordersPage, orderQuery, orderStatus, refresh]);
 
   async function logout() {
-    await api("/auth/logout", { method: "POST" });
-    router.push("/login");
+    try {
+      await api("/auth/logout", { method: "POST" });
+    } finally {
+      clearAuthToken();
+      router.push("/login");
+    }
   }
 
   const showNotification = (msg: string) => {
@@ -355,7 +359,7 @@ export function AdminPage() {
       <div className="admin-content-area">
         {/* Top Sticky Header */}
         <header className="admin-topbar">
-          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+          <div className="admin-topbar-left">
             <button
               className="btn outline small"
               id="mobile-nav-toggle"
@@ -582,54 +586,62 @@ export function AdminPage() {
               {books.length > 0 ? (
                 books.map(b => (
                   <div className="admin-row" key={b._id}>
-                    <Cover book={b} />
-                    <div className="admin-row-main">
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                        <strong>{b.title}</strong>
-                        {b.tag && (
+                    <div className="admin-row-top">
+                      <Cover
+                        book={b}
+                        className="admin-book-cover"
+                        style={{ width: 60, minWidth: 60, maxWidth: 60, height: 85, flexShrink: 0 }}
+                      />
+                      <div className="admin-row-main">
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                          <strong style={{ fontSize: "14.5px", color: "var(--dark)" }}>{b.title}</strong>
+                          {b.tag && (
+                            <span
+                              style={{
+                                background: b.tag === "Bestseller" ? "#ffc629" : "#e0e7ff",
+                                color: b.tag === "Bestseller" ? "#10245b" : "#3730a3",
+                                fontSize: "10px",
+                                fontWeight: "700",
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                              }}
+                            >
+                              {b.tag}
+                            </span>
+                          )}
                           <span
                             style={{
-                              background: b.tag === "Bestseller" ? "#ffc629" : "#e0e7ff",
-                              color: b.tag === "Bestseller" ? "#10245b" : "#3730a3",
                               fontSize: "10px",
                               fontWeight: "700",
+                              textTransform: "uppercase",
                               padding: "2px 6px",
                               borderRadius: "4px",
+                              background: b.status === "published" ? "#d1fae5" : "#fef3c7",
+                              color: b.status === "published" ? "#065f46" : "#92400e",
                             }}
                           >
-                            {b.tag}
+                            {b.status}
                           </span>
-                        )}
-                        <span
-                          style={{
-                            fontSize: "10px",
-                            fontWeight: "700",
-                            textTransform: "uppercase",
-                            padding: "2px 6px",
-                            borderRadius: "4px",
-                            background: b.status === "published" ? "#d1fae5" : "#fef3c7",
-                            color: b.status === "published" ? "#065f46" : "#92400e",
-                          }}
-                        >
-                          {b.status}
+                        </div>
+                        <span style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>
+                          Category: <strong>{b.category}</strong> · Price: <strong>{money(b.sellingPrice)}</strong> (MSRP: {money(b.originalPrice)})
+                          {b.pages ? ` · ${b.pages} pages` : ""}
+                        </span>
+                        <span style={{ fontSize: "12px" }}>
+                          {b.pdfFileName ? (
+                            <span style={{ color: "#065f46", fontWeight: "600" }}>
+                              ✓ PDF: {b.pdfFileName} {b.pdfSize ? `(${(b.pdfSize / 1048576).toFixed(1)} MB)` : ""}
+                            </span>
+                          ) : (
+                            <span style={{ color: "#b94c2a", fontWeight: "600" }}>
+                              ⚠ No PDF attached (Cannot be purchased until uploaded)
+                            </span>
+                          )}
+                          <span style={{ color: "var(--muted)" }}>
+                            {b.thumbnailUrl ? " · Custom Cover (Cloudinary)" : " · Default Cover"}
+                          </span>
                         </span>
                       </div>
-                      <span>
-                        Category: <strong>{b.category}</strong> · Price: <strong>{money(b.sellingPrice)}</strong> (MSRP: {money(b.originalPrice)})
-                        {b.pages ? ` · ${b.pages} pages` : ""}
-                      </span>
-                      <span>
-                        {b.pdfFileName ? (
-                          <span style={{ color: "#065f46" }}>
-                            ✓ PDF: {b.pdfFileName} {b.pdfSize ? `(${(b.pdfSize / 1048576).toFixed(1)} MB)` : ""}
-                          </span>
-                        ) : (
-                          <span style={{ color: "#b94c2a" }}>
-                            ⚠ No PDF attached (Cannot be purchased until uploaded)
-                          </span>
-                        )}
-                        {b.thumbnailUrl ? " · Custom Cover (Cloudinary)" : " · Default Cover"}
-                      </span>
                     </div>
 
                     <div className="admin-actions">
@@ -1411,6 +1423,8 @@ function AddBookFull({
     xhr.open("POST", `${API}/admin/books/create-full`);
     xhr.withCredentials = true;
     xhr.setRequestHeader("X-Classes-Request", "web");
+    const authToken = getAuthToken();
+    if (authToken) xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
 
     xhr.upload.onprogress = event => {
       if (event.lengthComputable) {
@@ -2098,6 +2112,8 @@ function UploadButton({
           xhr.open("POST", `${API}/admin/books/${book._id}/upload-${kind}`);
           xhr.withCredentials = true;
           xhr.setRequestHeader("X-Classes-Request", "web");
+          const authToken = getAuthToken();
+          if (authToken) xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
 
           xhr.upload.onprogress = event => {
             if (event.lengthComputable) {

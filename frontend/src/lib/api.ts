@@ -1,6 +1,32 @@
 import type { BookRecord } from "@classes/shared";
 
-export const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api").replace(/\/$/, "");
+export const API = (process.env.NEXT_PUBLIC_API_URL || "https://digital-bizware-1.onrender.com/api").replace(/\/$/, "");
+
+const TOKEN_KEY = "classes_token";
+
+export function getAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token: string | null | undefined): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  } catch {}
+}
+
+export function clearAuthToken(): void {
+  setAuthToken(null);
+}
 
 export async function api<T = any>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
@@ -9,6 +35,10 @@ export async function api<T = any>(path: string, options: RequestInit = {}): Pro
   }
   if (!["GET", "HEAD"].includes(options.method || "GET")) {
     headers.set("X-Classes-Request", "web");
+  }
+  const token = getAuthToken();
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
   }
   const res = await fetch(`${API}${path}`, {
     ...options,
