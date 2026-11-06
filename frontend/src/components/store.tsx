@@ -658,7 +658,7 @@ export function HomePage() {
     category: "Digital Marketing",
     sellingPrice: 549,
     originalPrice: 799,
-    rating: 4.8,
+    rating: 4.9,
     coverImageUrl: "/assets/ebook-cover.png",
     tag: "Bestseller",
   };
@@ -715,7 +715,7 @@ export function HomePage() {
               </div>
               <div className="hero-proof-item">
                 <span className="icon">★</span>
-                <span>4.8/5 Reader Rating</span>
+                <span>4.9/5 Reader Rating</span>
               </div>
             </div>
           </div>

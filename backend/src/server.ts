@@ -45,7 +45,7 @@ declare global {
 
 const app = express();
 const isProd = process.env.NODE_ENV === "production";
-const rawWebOrigins = (process.env.FRONTEND_URL || process.env.WEB_ORIGIN || "http://localhost:3000")
+const rawWebOrigins = (process.env.FRONTEND_URL || process.env.WEB_ORIGIN || (isProd ? "https://www.webturelab.com" : "http://localhost:3000"))
   .split(",")
   .map(s => s.trim().replace(/\/$/, ""))
   .filter(Boolean);
@@ -58,41 +58,103 @@ const rawAllowedOrigins = (process.env.ALLOWED_ORIGINS || "")
   .map(s => s.trim().replace(/\/$/, ""))
   .filter(Boolean);
 
-const allowedOrigins = new Set([...rawWebOrigins, ...rawAdminOrigins, ...rawAllowedOrigins]);
-const webOrigin = rawWebOrigins[0] || "http://localhost:3000";
+const defaultAllowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:3001",
+  "https://webturelab.com",
+  "https://www.webturelab.com",
+  "https://admin.webturelab.com"
+];
+
+const allowedOrigins = new Set([
+  ...defaultAllowedOrigins,
+  ...rawWebOrigins,
+  ...rawAdminOrigins,
+  ...rawAllowedOrigins
+]);
+const webOrigin = rawWebOrigins[0] || (isProd ? "https://www.webturelab.com" : "http://localhost:3000");
 const adminOrigin = rawAdminOrigins[0] || "http://localhost:3001";
 const razorpay = process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
   ? new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET })
   : null;
 const cookieName = "classes_session";
 
+export function isAllowedOrigin(origin?: string): boolean {
+  if (!origin) return true;
+  const normalized = origin.trim().replace(/\/$/, "");
+  if (allowedOrigins.has(normalized)) return true;
+
+  try {
+    const u = new URL(origin);
+    const host = u.hostname.toLowerCase();
+
+    // Check apex or www matches against allowedOrigins
+    for (const allowed of allowedOrigins) {
+      if (allowed.toLowerCase() === normalized.toLowerCase()) return true;
+      try {
+        const allowedUrl = new URL(allowed);
+        if (allowedUrl.origin.toLowerCase() === u.origin.toLowerCase()) return true;
+        const allowedHost = allowedUrl.hostname.toLowerCase();
+        if (host === `www.${allowedHost}` || allowedHost === `www.${host}`) {
+          return true;
+        }
+      } catch {}
+    }
+
+    // Custom domain support for Webture Lab (apex and any subdomains)
+    if (host === "webturelab.com" || host.endsWith(".webturelab.com")) {
+      return true;
+    }
+
+    // Allow all Vercel deployments (production, preview, staging)
+    if (host === "vercel.app" || host.endsWith(".vercel.app")) {
+      return true;
+    }
+
+    // Allow Render deployments
+    if (host === "onrender.com" || host.endsWith(".onrender.com")) {
+      return true;
+    }
+
+    // Allow local development ports
+    if (host === "localhost" || host === "127.0.0.1") {
+      return true;
+    }
+  } catch {}
+
+  return false;
+}
+
+const corsOptions: cors.CorsOptions = {
+  origin(origin, cb) {
+    if (isAllowedOrigin(origin)) {
+      return cb(null, true);
+    }
+    return cb(null, false);
+  },
+  credentials: true,
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Classes-Request",
+    "Accept",
+    "Origin",
+    "X-Requested-With",
+    "Cache-Control"
+  ],
+  methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS", "HEAD"],
+  optionsSuccessStatus: 200
+};
+
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
 }));
-app.use(cors({
-  origin(origin, cb) {
-    if (!origin) return cb(null, true);
-    const normalized = origin.replace(/\/$/, "");
-    if (allowedOrigins.has(normalized)) return cb(null, true);
-    try {
-      const u = new URL(origin);
-      // Allow all Vercel deployments (production, preview, staging)
-      if (u.hostname.endsWith(".vercel.app") || u.hostname === "vercel.app") {
-        return cb(null, true);
-      }
-      // Allow local development ports
-      if (!isProd && (u.hostname === "localhost" || u.hostname === "127.0.0.1")) {
-        return cb(null, true);
-      }
-    } catch {}
-    return cb(null, false);
-  },
-  credentials: true,
-  allowedHeaders: ["Content-Type", "X-Classes-Request", "Authorization"],
-  methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"]
-}));
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(cookieParser());
 
 // Static serving for local uploads in development
@@ -161,24 +223,8 @@ app.use(express.json({ limit: "1mb" }));
 app.use((req, res, next) => {
   if (["GET", "HEAD", "OPTIONS"].includes(req.method) || req.path === "/api/health" || req.path.startsWith("/api/downloads/")) return next();
   const origin = req.header("origin");
-  if (origin) {
-    const normalized = origin.replace(/\/$/, "");
-    let allowed = allowedOrigins.has(normalized);
-    if (!allowed) {
-      try {
-        const u = new URL(origin);
-        if (
-          u.hostname.endsWith(".vercel.app") ||
-          u.hostname === "vercel.app" ||
-          (!isProd && (u.hostname === "localhost" || u.hostname === "127.0.0.1"))
-        ) {
-          allowed = true;
-        }
-      } catch {}
-    }
-    if (!allowed) {
-      return res.status(403).json({ error: "Request origin not allowed" });
-    }
+  if (origin && !isAllowedOrigin(origin)) {
+    return res.status(403).json({ error: "Request origin not allowed" });
   }
   if (req.header("x-classes-request") !== "web") return res.status(403).json({ error: "Missing request header" });
   next();
