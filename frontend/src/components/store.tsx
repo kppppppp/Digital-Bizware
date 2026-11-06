@@ -443,6 +443,21 @@ function Footer() {
             <div className="footer-trust-badge">
               <span>🔒 256-Bit SSL Encrypted Checkout</span>
             </div>
+            <div className="footer-contact-box">
+              <a href="tel:7304553500" className="footer-phone-link">
+                <span>📞</span>
+                <span>+91 7304553500</span>
+              </a>
+              <a
+                href="https://www.digitalbizware.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="footer-main-site-btn"
+              >
+                <span>🎓 Visit Main Classes Website</span>
+                <span>↗</span>
+              </a>
+            </div>
           </div>
 
           <div>
@@ -453,6 +468,13 @@ function Footer() {
               <Link href="/explore?tag=Bestseller">Bestselling Guides</Link>
               <Link href="/explore?tag=New">New Publications</Link>
               <Link href="/#why-us">Why Digital Bizware</Link>
+              <a
+                href="https://www.digitalbizware.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Main Classes Website ↗
+              </a>
             </div>
           </div>
 
@@ -473,6 +495,16 @@ function Footer() {
               <Link href="/student">My Library</Link>
               <Link href="/login">Customer Sign In</Link>
               <Link href="/register">Create Account</Link>
+              <a href="tel:7304553500">
+                Call / WhatsApp: 7304553500
+              </a>
+              <a
+                href="https://www.digitalbizware.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Classes Portal ↗
+              </a>
               <Link href={process.env.NEXT_PUBLIC_ADMIN_URL || "/admin"}>
                 Admin Portal
               </Link>
@@ -481,10 +513,21 @@ function Footer() {
         </div>
 
         <div className="footer-bottom">
-          <div>
-            © 2026 DIGITAL BIZWARE. All rights reserved. Knowledge That Moves You Forward.
+          <div className="footer-bottom-info">
+            <span>© 2026 DIGITAL BIZWARE. All rights reserved. Knowledge That Moves You Forward.</span>
+            <span className="footer-bottom-phone">
+              Helpline: <a href="tel:7304553500" style={{ color: "var(--yellow)", fontWeight: 700 }}>+91 7304553500</a>
+            </span>
           </div>
           <div className="footer-legal-links">
+            <a
+              href="https://www.digitalbizware.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "var(--yellow)", fontWeight: 600 }}
+            >
+              Main Website ↗
+            </a>
             <Link href="/explore">Catalogue</Link>
             <Link href="/categories">Disciplines</Link>
             <Link href="/student">Library Access</Link>

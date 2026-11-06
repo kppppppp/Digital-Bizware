@@ -1504,6 +1504,20 @@ img {
   margin-bottom: 14px;
 }
 
+.footer-brand .brand-logo-img {
+  background: #ffffff;
+  padding: 6px;
+  border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.footer-brand .brand:hover .brand-logo-img {
+  transform: scale(1.04);
+  box-shadow: 0 6px 18px rgba(255, 198, 41, 0.35);
+}
+
 .footer-brand .brand-name {
   color: var(--white);
 }
@@ -1512,7 +1526,58 @@ img {
   font-size: 13px;
   line-height: 1.6;
   color: #999999;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
+}
+
+.footer-contact-box {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.footer-phone-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffffff !important;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 8px 14px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  width: fit-content;
+}
+
+.footer-phone-link:hover {
+  background: rgba(255, 198, 41, 0.15);
+  border-color: var(--yellow);
+  color: var(--yellow) !important;
+}
+
+.footer-main-site-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: linear-gradient(135deg, #FFC629 0%, #E6AC10 100%);
+  color: #0A1128 !important;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+  padding: 9px 15px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(255, 198, 41, 0.25);
+  transition: all 0.2s ease;
+  width: fit-content;
+}
+
+.footer-main-site-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(255, 198, 41, 0.4);
 }
 
 .footer-trust-badge {
@@ -1565,6 +1630,28 @@ img {
   color: #777777;
   flex-wrap: wrap;
   gap: 16px;
+}
+
+.footer-bottom-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.footer-bottom-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.footer-bottom-phone a {
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.footer-bottom-phone a:hover {
+  text-decoration: underline;
 }
 
 .footer-legal-links {
