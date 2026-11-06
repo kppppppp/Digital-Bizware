@@ -81,7 +81,7 @@ const razorpay = process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
   : null;
 const cookieName = "classes_session";
 
-export function isAllowedOrigin(origin?: string): boolean {
+function isAllowedOrigin(origin?: string): boolean {
   if (!origin) return true;
   const normalized = origin.trim().replace(/\/$/, "");
   if (allowedOrigins.has(normalized)) return true;
@@ -1407,4 +1407,4 @@ if (process.env.NODE_ENV !== "test") {
   });
 }
 
-export { app, requireAuth, requireAdmin, requireStudent, processPayment };
+export { app, isAllowedOrigin, requireAuth, requireAdmin, requireStudent, processPayment };

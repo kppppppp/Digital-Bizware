@@ -20,7 +20,7 @@ vi.mock("./services/storage.js", () => mocks);
 vi.mock("./services/email.js", () => mocks);
 vi.mock("razorpay", () => ({ default: class { orders = { create: mocks.razorOrdersCreate }; payments = { fetch: mocks.razorPaymentsFetch, capture: mocks.razorPaymentsCapture }; } }));
 
-import { app, canDownload, processPayment, validWebhookSignature } from "./server.js";
+import { app, canDownload, isAllowedOrigin, processPayment, validWebhookSignature } from "./server.js";
 import { AuditLog, Book, Order, Purchase, Session, User, WebhookEvent } from "./models.js";
 import { deleteCover, deletePdf, putPdf, signPdfDownload, uploadCover } from "./services/storage.js";
 
@@ -184,5 +184,49 @@ describe("administrator uploads and catalogue", () => {
   });
   it("keeps students out of admin APIs", async () => {
     auth("student"); expect((await request(app).get("/api/admin/dashboard").set("Cookie", COOKIE)).status).toBe(403);
+  });
+});
+
+
+describe("CORS and cross-origin preflight requests", () => {
+  it("allows preflight OPTIONS for https://www.webturelab.com and sets CORS headers", async () => {
+    const res = await request(app)
+      .options("/api/auth/me")
+      .set("Origin", "https://www.webturelab.com")
+      .set("Access-Control-Request-Method", "GET")
+      .set("Access-Control-Request-Headers", "Authorization, Content-Type, X-Classes-Request");
+
+    expect([200, 204]).toContain(res.status);
+    expect(res.headers["access-control-allow-origin"]).toBe("https://www.webturelab.com");
+    expect(res.headers["access-control-allow-credentials"]).toBe("true");
+  });
+
+  it("allows preflight OPTIONS for apex https://webturelab.com", async () => {
+    const res = await request(app)
+      .options("/api/books")
+      .set("Origin", "https://webturelab.com")
+      .set("Access-Control-Request-Method", "GET");
+
+    expect([200, 204]).toContain(res.status);
+    expect(res.headers["access-control-allow-origin"]).toBe("https://webturelab.com");
+  });
+
+  it("blocks untrusted origins from receiving CORS allow origin headers", async () => {
+    const res = await request(app)
+      .options("/api/books")
+      .set("Origin", "https://unauthorized-domain.com")
+      .set("Access-Control-Request-Method", "GET");
+
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("isAllowedOrigin helper correctly validates trusted domains", () => {
+    expect(isAllowedOrigin(undefined)).toBe(true);
+    expect(isAllowedOrigin("https://www.webturelab.com")).toBe(true);
+    expect(isAllowedOrigin("https://webturelab.com")).toBe(true);
+    expect(isAllowedOrigin("https://admin.webturelab.com")).toBe(true);
+    expect(isAllowedOrigin("https://my-preview.vercel.app")).toBe(true);
+    expect(isAllowedOrigin("http://localhost:3000")).toBe(true);
+    expect(isAllowedOrigin("https://malicious-site.com")).toBe(false);
   });
 });
