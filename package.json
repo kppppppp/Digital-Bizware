@@ -14,8 +14,8 @@
     "dev:backend": "npm --workspace @classes/backend run dev",
     "build": "npm --workspace @classes/shared run build && npm --workspace @classes/backend run build && npm --workspace @classes/frontend run build && npm --workspace @classes/admin run build",
     "build:backend": "npm --workspace @classes/shared run build && npm --workspace @classes/backend run build",
-    "build:frontend": "npm --workspace @classes/shared run build && npm --workspace @classes/frontend run build",
-    "build:admin": "npm --workspace @classes/shared run build && npm --workspace @classes/admin run build",
+    "build:frontend": "npm run build --workspace=@classes/frontend",
+    "build:admin": "npm run build --workspace=@classes/admin",
     "test": "npm --workspace @classes/backend test",
     "create-admin": "npm --workspace @classes/backend run create-admin"
   },
