@@ -454,7 +454,7 @@ function Footer() {
                 rel="noopener noreferrer"
                 className="footer-main-site-btn"
               >
-                <span>🎓 Visit Main Classes Website</span>
+                <span>🎓 https://www.digitalbizware.com</span>
                 <span>↗</span>
               </a>
             </div>

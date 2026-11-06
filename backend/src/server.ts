@@ -468,10 +468,19 @@ async function grantOrder(order: any, paymentId: string) {
 async function bootstrap() {
   if (!process.env.MONGODB_URI) throw new Error("MONGODB_URI is required. Add your MongoDB Atlas connection string to backend/.env.");
   if (isProd) {
-    const required = ["MONGODB_URI", "FRONTEND_URL", "ADMIN_URL", "BACKEND_URL", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME", "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET", "RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET", "BREVO_API_KEY", "BREVO_SENDER_EMAIL", "ADMIN_NOTIFICATION_EMAIL"];
+    const required = ["MONGODB_URI"];
     const missing = required.filter(key => !process.env[key]);
-    if (!process.env.R2_ENDPOINT && !process.env.R2_ACCOUNT_ID) missing.push("R2_ENDPOINT or R2_ACCOUNT_ID");
     if (missing.length) throw new Error(`Missing required production configuration: ${missing.join(", ")}`);
+
+    const missingPayments = ["RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET"].filter(key => !process.env[key]);
+    if (missingPayments.length) {
+      console.warn(`[CONFIG WARNING] Missing Razorpay configuration: ${missingPayments.join(", ")}. Payment endpoints will return 503 or mock until configured.`);
+    }
+
+    const missingServices = ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME", "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET", "BREVO_API_KEY", "BREVO_SENDER_EMAIL"].filter(key => !process.env[key]);
+    if (missingServices.length) {
+      console.warn(`[CONFIG WARNING] Optional service variables missing: ${missingServices.join(", ")}.`);
+    }
   }
 
   // Ensure default sample PDF exists on disk for dev
