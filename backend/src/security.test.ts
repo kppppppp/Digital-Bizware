@@ -20,7 +20,7 @@ vi.mock("./services/storage.js", () => mocks);
 vi.mock("./services/email.js", () => mocks);
 vi.mock("razorpay", () => ({ default: class { orders = { create: mocks.razorOrdersCreate }; payments = { fetch: mocks.razorPaymentsFetch, capture: mocks.razorPaymentsCapture }; } }));
 
-import { app, canDownload, isAllowedOrigin, processPayment, validWebhookSignature } from "./server.js";
+import { app, canDownload, isAllowedOrigin, processPayment, resolveWebOrigin, validWebhookSignature } from "./server.js";
 import { AuditLog, Book, Order, Purchase, Session, User, WebhookEvent } from "./models.js";
 import { deleteCover, deletePdf, putPdf, signPdfDownload, uploadCover } from "./services/storage.js";
 
@@ -228,5 +228,39 @@ describe("CORS and cross-origin preflight requests", () => {
     expect(isAllowedOrigin("https://my-preview.vercel.app")).toBe(true);
     expect(isAllowedOrigin("http://localhost:3000")).toBe(true);
     expect(isAllowedOrigin("https://malicious-site.com")).toBe(false);
+  });
+});
+
+
+describe("origin resolution and verification email links", () => {
+  it("resolves origin from Origin header for https://www.webturelab.com", () => {
+    const fakeReq: any = { header: (name: string) => name.toLowerCase() === "origin" ? "https://www.webturelab.com" : undefined };
+    expect(resolveWebOrigin(fakeReq)).toBe("https://www.webturelab.com");
+  });
+
+  it("resolves origin from Referer header if Origin is absent", () => {
+    const fakeReq: any = { header: (name: string) => name.toLowerCase() === "referer" ? "https://webturelab.com/register" : undefined };
+    expect(resolveWebOrigin(fakeReq)).toBe("https://webturelab.com");
+  });
+
+  it("uses request origin for verification emails during registration", async () => {
+    vi.spyOn(User, "exists").mockResolvedValue(null as any);
+    vi.spyOn(User, "create").mockResolvedValue({ name: "Asha", email: "asha@example.com" } as any);
+
+    const r = await request(app)
+      .post("/api/auth/register")
+      .set("Origin", "https://www.webturelab.com")
+      .set("X-Classes-Request", "web")
+      .send({ name: "Asha User", email: "asha@example.com", phone: "9876543210", password: "long-secure-password" });
+
+    expect(r.status).toBe(201);
+    expect(mocks.sendVerification).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "asha@example.com" }),
+      expect.stringMatching(/^https:\/\/www\.webturelab\.com\/verify\?token=[a-f0-9]{64}$/)
+    );
+    expect(mocks.sendWelcome).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "asha@example.com" }),
+      "https://www.webturelab.com/login"
+    );
   });
 });

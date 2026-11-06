@@ -44,7 +44,7 @@ declare global {
 }
 
 const app = express();
-const isProd = process.env.NODE_ENV === "production";
+const isProd = process.env.NODE_ENV === "production" || process.env.RENDER === "true";
 const rawWebOrigins = (process.env.FRONTEND_URL || process.env.WEB_ORIGIN || (isProd ? "https://www.webturelab.com" : "http://localhost:3000"))
   .split(",")
   .map(s => s.trim().replace(/\/$/, ""))
@@ -74,12 +74,6 @@ const allowedOrigins = new Set([
   ...rawAdminOrigins,
   ...rawAllowedOrigins
 ]);
-const webOrigin = rawWebOrigins[0] || (isProd ? "https://www.webturelab.com" : "http://localhost:3000");
-const adminOrigin = rawAdminOrigins[0] || "http://localhost:3001";
-const razorpay = process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
-  ? new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET })
-  : null;
-const cookieName = "classes_session";
 
 function isAllowedOrigin(origin?: string): boolean {
   if (!origin) return true;
@@ -126,6 +120,58 @@ function isAllowedOrigin(origin?: string): boolean {
 
   return false;
 }
+
+function resolveWebOrigin(req?: Request): string {
+  // 1. If incoming request has an allowed origin header, use it directly (excluding localhost in production/Render)
+  const origin = req?.header("origin");
+  if (origin && isAllowedOrigin(origin)) {
+    const cleanOrigin = origin.trim().replace(/\/$/, "");
+    if (!isProd || (!cleanOrigin.includes("localhost") && !cleanOrigin.includes("127.0.0.1"))) {
+      return cleanOrigin;
+    }
+  }
+
+  // 2. If incoming request has a referer header from an allowed origin
+  const referer = req?.header("referer");
+  if (referer) {
+    try {
+      const u = new URL(referer);
+      if (isAllowedOrigin(u.origin)) {
+        const cleanRef = u.origin.trim().replace(/\/$/, "");
+        if (!isProd || (!cleanRef.includes("localhost") && !cleanRef.includes("127.0.0.1"))) {
+          return cleanRef;
+        }
+      }
+    } catch {}
+  }
+
+  // 3. Look for explicit configured non-localhost origin in env
+  const explicitProd = [...rawWebOrigins, ...rawAllowedOrigins].find(
+    o => !o.includes("localhost") && !o.includes("127.0.0.1") && !o.includes("*") && o.startsWith("http")
+  );
+  if (explicitProd) {
+    return explicitProd.replace(/\/$/, "");
+  }
+
+  // 4. In production or on Render/Vercel, always default to the live custom domain
+  if (isProd || process.env.RENDER || process.env.VERCEL) {
+    return "https://www.webturelab.com";
+  }
+
+  // 5. In local dev, if origin header was localhost, use it
+  if (origin && isAllowedOrigin(origin)) {
+    return origin.trim().replace(/\/$/, "");
+  }
+
+  return rawWebOrigins[0] || "http://localhost:3000";
+}
+
+const webOrigin = resolveWebOrigin();
+const adminOrigin = rawAdminOrigins[0] || "http://localhost:3001";
+const razorpay = process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
+  ? new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET })
+  : null;
+const cookieName = "classes_session";
 
 const corsOptions: cors.CorsOptions = {
   origin(origin, cb) {
@@ -551,12 +597,13 @@ app.post("/api/auth/register", authLimiter, asyncRoute(async (req, res) => {
     verifyTokenHash: sha(token),
     verifyExpires: new Date(Date.now() + 24 * 3600e3)
   });
-  const verifyUrl = `${webOrigin}/verify?token=${token}`;
+  const currentWebOrigin = resolveWebOrigin(req);
+  const verifyUrl = `${currentWebOrigin}/verify?token=${token}`;
   if (!process.env.BREVO_API_KEY && !isProd) {
     console.log(`\n[DEV EMAIL] Student verification URL for ${email}: ${verifyUrl}\n`);
   }
   await bestEffortEmail("Verification", () => sendVerification({ email, name: user.name }, verifyUrl));
-  await bestEffortEmail("Welcome", () => sendWelcome({ email, name: user.name }, `${webOrigin}/login`));
+  await bestEffortEmail("Welcome", () => sendWelcome({ email, name: user.name }, `${currentWebOrigin}/login`));
   res.status(201).json({
     message: "Account created. Check your email to verify your address.",
     ...(!isProd ? { devVerifyUrl: verifyUrl } : {})
@@ -572,7 +619,8 @@ app.post("/api/auth/resend-verification", authLimiter, asyncRoute(async (req, re
     user.verifyTokenHash = sha(token);
     user.verifyExpires = new Date(Date.now() + 24 * 3600e3);
     await user.save();
-    verifyUrl = `${webOrigin}/verify?token=${token}`;
+    const currentWebOrigin = resolveWebOrigin(req);
+    verifyUrl = `${currentWebOrigin}/verify?token=${token}`;
     if (!process.env.BREVO_API_KEY && !isProd) {
       console.log(`\n[DEV EMAIL] Resent verification URL for ${email}: ${verifyUrl}\n`);
     }
@@ -621,7 +669,8 @@ app.post("/api/auth/forgot-password", authLimiter, asyncRoute(async (req, res) =
     user.resetTokenHash = sha(token);
     user.resetExpires = new Date(Date.now() + 3600e3);
     await user.save();
-    resetUrl = `${webOrigin}/reset-password?token=${token}`;
+    const currentWebOrigin = resolveWebOrigin(req);
+    resetUrl = `${currentWebOrigin}/reset-password?token=${token}`;
     if (!process.env.BREVO_API_KEY && !isProd) {
       console.log(`\n[DEV EMAIL] Password reset URL for ${email}: ${resetUrl}\n`);
     }
@@ -1407,4 +1456,4 @@ if (process.env.NODE_ENV !== "test") {
   });
 }
 
-export { app, isAllowedOrigin, requireAuth, requireAdmin, requireStudent, processPayment };
+export { app, isAllowedOrigin, resolveWebOrigin, requireAuth, requireAdmin, requireStudent, processPayment };
