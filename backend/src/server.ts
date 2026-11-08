@@ -597,8 +597,8 @@ async function bootstrap() {
   }
 
   // Automatic Administrator Account Provisioning (Ensures production access on deployment)
-  const adminEmail = (process.env.ADMIN_EMAIL || "admin@gmail.com").toLowerCase().trim();
-  const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
+  const adminEmail = (process.env.ADMIN_EMAIL || "info@webturelab.com").toLowerCase().trim();
+  const adminPassword = process.env.ADMIN_PASSWORD || "Bizware@321";
   const adminName = process.env.ADMIN_NAME || "Digital Bizware Admin";
   const adminPhone = process.env.ADMIN_PHONE?.trim() || "9999999999";
   const existingAdmin = await User.findOne({ email: adminEmail });
@@ -1542,6 +1542,70 @@ app.get("/api/admin/orders", adminAuth, asyncRoute(async (req, res) => {
     Order.countDocuments(filter)
   ]);
   res.json({ items, page, limit, total, totalPages: Math.ceil(total / limit) || 1 });
+}));
+
+app.delete("/api/admin/orders/:id", adminAuth, asyncRoute(async (req, res) => {
+  const order = await Order.findByIdAndDelete(req.params.id);
+  if (!order) return res.status(404).json({ error: "Order not found" });
+
+  await Purchase.deleteMany({ orderId: order._id });
+  await AuditLog.create({
+    adminId: req.authUser._id,
+    action: "order.delete",
+    targetId: String(order._id),
+    details: { razorpayOrderId: order.razorpayOrderId }
+  });
+
+  res.json({ ok: true, message: "Order removed successfully" });
+}));
+
+app.post("/api/admin/orders/clear-all", adminAuth, asyncRoute(async (req, res) => {
+  const result = await Order.deleteMany({});
+  await Purchase.deleteMany({});
+  await AuditLog.create({
+    adminId: req.authUser._id,
+    action: "orders.clear_all",
+    targetId: String(req.authUser._id),
+    details: { deletedCount: result.deletedCount }
+  });
+
+  res.json({ ok: true, message: `Successfully cleared ${result.deletedCount} orders. Store is ready for live orders.` });
+}));
+
+app.post("/api/admin/change-password", adminAuth, asyncRoute(async (req, res) => {
+  const body = z.object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: z.string().min(8, "New password must be at least 8 characters long").max(128),
+  }).parse(req.body);
+
+  const user = await User.findById(req.authUser._id);
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  const isCurrentValid = await bcrypt.compare(body.currentPassword, user.passwordHash);
+  if (!isCurrentValid) {
+    return res.status(400).json({ error: "Current password is incorrect" });
+  }
+
+  if (body.currentPassword === body.newPassword) {
+    return res.status(400).json({ error: "New password must be different from current password" });
+  }
+
+  user.passwordHash = await bcrypt.hash(body.newPassword, 12);
+  await user.save();
+
+  // Invalidate any other active sessions for security, keeping the current session active
+  if (req.sessionId) {
+    await Session.deleteMany({ userId: user._id, _id: { $ne: req.sessionId } });
+  }
+
+  await AuditLog.create({
+    adminId: req.authUser._id,
+    action: "admin.password.change",
+    targetId: String(user._id),
+    details: { email: user.email }
+  });
+
+  res.json({ ok: true, message: "Password updated successfully" });
 }));
 
 function escapeRegex(s: string) {

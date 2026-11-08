@@ -9,10 +9,21 @@ import { Cover } from "./store";
 
 export function AdminPage() {
   const [user, setUser] = useState<any>(null);
-  const [tab, setTab] = useState<"overview" | "books" | "add-book" | "categories" | "students" | "orders" | "services">("overview");
+  const [tab, setTab] = useState<"overview" | "books" | "add-book" | "categories" | "students" | "orders" | "services" | "settings">("overview");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [stats, setStats] = useState<any>(null);
   const [servicesStatus, setServicesStatus] = useState<any>(null);
+
+  // Settings & Password Change state
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrentPw, setShowCurrentPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwError, setPwError] = useState("");
+  const [pwSuccess, setPwSuccess] = useState("");
 
   // Books state
   const [books, setBooks] = useState<BookRecord[]>([]);
@@ -176,6 +187,62 @@ export function AdminPage() {
     setTimeout(() => setSuccessMsg(""), 4000);
   };
 
+  async function handlePasswordChange(e: React.FormEvent) {
+    e.preventDefault();
+    setPwError("");
+    setPwSuccess("");
+    if (!currentPassword) {
+      setPwError("Current password is required");
+      return;
+    }
+    if (!newPassword || newPassword.length < 8) {
+      setPwError("New password must be at least 8 characters long");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPwError("New password and confirm password do not match");
+      return;
+    }
+    try {
+      setPwBusy(true);
+      const res = await api<any>("/admin/change-password", {
+        method: "POST",
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      setPwSuccess(res.message || "Password updated successfully!");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      showNotification("Administrator password changed successfully!");
+    } catch (err: any) {
+      setPwError(err.message || "Failed to update password");
+    } finally {
+      setPwBusy(false);
+    }
+  }
+
+  async function handleClearAllOrders() {
+    if (!confirm("Are you sure you want to remove all dummy orders? This action cannot be undone.")) return;
+    try {
+      const res = await api<any>("/admin/orders/clear-all", { method: "POST" });
+      showNotification(res.message || "All dummy orders cleared successfully!");
+      setRefresh(x => x + 1);
+    } catch (err: any) {
+      setError(err.message || "Failed to clear orders");
+    }
+  }
+
+  async function handleDeleteOrder(id: string) {
+    if (!confirm("Permanently delete this order record?")) return;
+    try {
+      await api<any>(`/admin/orders/${id}`, { method: "DELETE" });
+      showNotification("Order record removed");
+      setRefresh(x => x + 1);
+    } catch (err: any) {
+      setError(err.message || "Failed to delete order");
+    }
+  }
+
   if (loading) {
     return (
       <main className="page admin-page">
@@ -321,6 +388,19 @@ export function AdminPage() {
               </div>
             </button>
 
+            <button
+              className={`admin-nav-link ${tab === "settings" ? "active" : ""}`}
+              onClick={() => {
+                setTab("settings");
+                setMobileNavOpen(false);
+              }}
+            >
+              <div className="nav-left">
+                <span className="nav-icon">⚙️</span>
+                <span>Settings & Security</span>
+              </div>
+            </button>
+
             <div style={{ margin: "16px 0 8px", borderTop: "1px solid rgba(255,255,255,0.08)" }} />
 
             <Link
@@ -377,6 +457,7 @@ export function AdminPage() {
                 {tab === "students" && "Registered Students"}
                 {tab === "orders" && "Orders & Transactions"}
                 {tab === "services" && "Services & Infrastructure Health"}
+                {tab === "settings" && "Admin Settings & Security"}
               </h1>
               <p>
                 {tab === "overview" && "High-level metrics, sales, recent registrations and merchandising summary."}
@@ -386,6 +467,7 @@ export function AdminPage() {
                 {tab === "students" && "Inspect enrolled students, purchase entitlements, and account statuses."}
                 {tab === "orders" && "Audit verified Razorpay payments, transaction amounts, and reference keys."}
                 {tab === "services" && "Inspect live connection state for Cloudflare R2, Cloudinary, Razorpay, Brevo and MongoDB."}
+                {tab === "settings" && "Manage administrator credentials, change login password, and store launch maintenance."}
               </p>
             </div>
           </div>
@@ -1082,8 +1164,20 @@ export function AdminPage() {
           {/* VIEW: ORDERS */}
           {tab === "orders" && (
             <div className="admin-card-box">
-              <div className="admin-card-header">
-                <h2>Verified Orders & Transactions ({ordersTotal})</h2>
+              <div className="admin-card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+                <div>
+                  <h2 style={{ margin: 0 }}>Verified Orders & Transactions ({ordersTotal})</h2>
+                  <small style={{ color: "var(--muted)" }}>Live payments and verified transaction records</small>
+                </div>
+                {orders.length > 0 && (
+                  <button
+                    className="btn outline small"
+                    onClick={handleClearAllOrders}
+                    style={{ color: "#dc2626", borderColor: "#fca5a5" }}
+                  >
+                    🗑️ Remove Dummy Orders
+                  </button>
+                )}
               </div>
 
               <div className="catalogue-tools" style={{ marginBottom: "20px" }}>
@@ -1112,11 +1206,13 @@ export function AdminPage() {
               </div>
 
               {orders.length > 0 ? (
-                <OrderTable orders={orders} />
+                <OrderTable orders={orders} onDelete={handleDeleteOrder} />
               ) : (
-                <p style={{ color: "var(--muted)", fontStyle: "italic", padding: "15px 0" }}>
-                  No orders match the criteria.
-                </p>
+                <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--muted)" }}>
+                  <p style={{ fontSize: "28px", margin: "0 0 10px" }}>✅</p>
+                  <p style={{ fontWeight: 600, color: "#1e293b", margin: "0 0 6px" }}>No orders in database</p>
+                  <p style={{ fontSize: "13px", margin: 0 }}>All dummy orders have been cleared. Storefront is ready for live customer purchases!</p>
+                </div>
               )}
 
               {ordersTotalPages > 1 && (
@@ -1250,6 +1346,203 @@ export function AdminPage() {
                       Requires: BREVO_API_KEY, BREVO_SENDER_EMAIL, BREVO_SENDER_NAME
                     </small>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* VIEW: SETTINGS & SECURITY */}
+          {tab === "settings" && (
+            <div>
+              {/* Admin Profile Information */}
+              <div className="admin-card-box">
+                <div className="admin-card-header">
+                  <div>
+                    <h2>Administrator Account Profile</h2>
+                    <small style={{ color: "var(--muted)" }}>Authenticated super administrator credentials</small>
+                  </div>
+                  <span
+                    style={{
+                      background: "#ecfdf5",
+                      color: "#065f46",
+                      padding: "4px 10px",
+                      borderRadius: "20px",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      border: "1px solid #a7f3d0"
+                    }}
+                  >
+                    ● Active Super Administrator
+                  </span>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "16px", marginTop: "16px" }}>
+                  <div style={{ padding: "16px", background: "var(--bg-subtle, #f8fafc)", borderRadius: "8px", border: "1px solid var(--line)" }}>
+                    <span style={{ fontSize: "11px", textTransform: "uppercase", fontWeight: "700", color: "var(--muted)" }}>Admin Name</span>
+                    <p style={{ margin: "6px 0 0", fontSize: "15px", fontWeight: "600", color: "#1e293b" }}>{user?.name || "Digital Bizware Admin"}</p>
+                  </div>
+                  <div style={{ padding: "16px", background: "var(--bg-subtle, #f8fafc)", borderRadius: "8px", border: "1px solid var(--line)" }}>
+                    <span style={{ fontSize: "11px", textTransform: "uppercase", fontWeight: "700", color: "var(--muted)" }}>Admin Email (Login ID)</span>
+                    <p style={{ margin: "6px 0 0", fontSize: "15px", fontWeight: "600", color: "#1e293b" }}>{user?.email || "info@webturelab.com"}</p>
+                  </div>
+                  <div style={{ padding: "16px", background: "var(--bg-subtle, #f8fafc)", borderRadius: "8px", border: "1px solid var(--line)" }}>
+                    <span style={{ fontSize: "11px", textTransform: "uppercase", fontWeight: "700", color: "var(--muted)" }}>Role & Permissions</span>
+                    <p style={{ margin: "6px 0 0", fontSize: "15px", fontWeight: "600", color: "#1e293b" }}>Full Store Administrator</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Change Password Card */}
+              <div className="admin-card-box">
+                <div className="admin-card-header">
+                  <div>
+                    <h2>Change Admin Password</h2>
+                    <small style={{ color: "var(--muted)" }}>Update your administrator login password to keep your store secure</small>
+                  </div>
+                </div>
+
+                {pwError && (
+                  <div style={{ background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca", padding: "12px 16px", borderRadius: "8px", marginBottom: "16px", fontSize: "13px" }}>
+                    ⚠️ {pwError}
+                  </div>
+                )}
+                {pwSuccess && (
+                  <div style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", padding: "12px 16px", borderRadius: "8px", marginBottom: "16px", fontSize: "13px" }}>
+                    ✓ {pwSuccess}
+                  </div>
+                )}
+
+                <form onSubmit={handlePasswordChange} style={{ maxWidth: "540px", display: "grid", gap: "18px" }}>
+                  <div className="form-field">
+                    <label style={{ fontSize: "13px", fontWeight: "700", color: "#1e293b", marginBottom: "6px", display: "block" }}>
+                      Current Password *
+                    </label>
+                    <div className="password-wrap">
+                      <input
+                        required
+                        type={showCurrentPw ? "text" : "password"}
+                        value={currentPassword}
+                        onChange={e => setCurrentPassword(e.target.value)}
+                        placeholder="Enter current password"
+                        autoComplete="current-password"
+                      />
+                      <button
+                        type="button"
+                        className="password-toggle-btn"
+                        onClick={() => setShowCurrentPw(!showCurrentPw)}
+                        aria-label="Toggle password visibility"
+                      >
+                        {showCurrentPw ? "Hide" : "Show"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-field">
+                    <label style={{ fontSize: "13px", fontWeight: "700", color: "#1e293b", marginBottom: "6px", display: "block" }}>
+                      New Password * <span style={{ fontSize: "11px", fontWeight: "normal", color: "var(--muted)" }}>(min 8 characters)</span>
+                    </label>
+                    <div className="password-wrap">
+                      <input
+                        required
+                        type={showNewPw ? "text" : "password"}
+                        value={newPassword}
+                        onChange={e => setNewPassword(e.target.value)}
+                        placeholder="Enter new strong password"
+                        minLength={8}
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        className="password-toggle-btn"
+                        onClick={() => setShowNewPw(!showNewPw)}
+                        aria-label="Toggle password visibility"
+                      >
+                        {showNewPw ? "Hide" : "Show"}
+                      </button>
+                    </div>
+                    {newPassword && (
+                      <div style={{ marginTop: "6px", fontSize: "12px", display: "flex", gap: "12px" }}>
+                        <span style={{ color: newPassword.length >= 8 ? "#16a34a" : "#dc2626" }}>
+                          {newPassword.length >= 8 ? "✓" : "✗"} 8+ chars
+                        </span>
+                        <span style={{ color: /[0-9!@#$%^&*]/.test(newPassword) ? "#16a34a" : "#ca8a04" }}>
+                          {/[0-9!@#$%^&*]/.test(newPassword) ? "✓" : "○"} Number or Symbol
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="form-field">
+                    <label style={{ fontSize: "13px", fontWeight: "700", color: "#1e293b", marginBottom: "6px", display: "block" }}>
+                      Confirm New Password *
+                    </label>
+                    <div className="password-wrap">
+                      <input
+                        required
+                        type={showConfirmPw ? "text" : "password"}
+                        value={confirmPassword}
+                        onChange={e => setConfirmPassword(e.target.value)}
+                        placeholder="Confirm new password"
+                        minLength={8}
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        className="password-toggle-btn"
+                        onClick={() => setShowConfirmPw(!showConfirmPw)}
+                        aria-label="Toggle password visibility"
+                      >
+                        {showConfirmPw ? "Hide" : "Show"}
+                      </button>
+                    </div>
+                    {confirmPassword && newPassword !== confirmPassword && (
+                      <span style={{ color: "#dc2626", fontSize: "12px", marginTop: "4px" }}>
+                        Passwords do not match
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ marginTop: "10px" }}>
+                    <button
+                      type="submit"
+                      className="btn btn-yellow"
+                      disabled={pwBusy}
+                      style={{ padding: "10px 24px", fontWeight: 700 }}
+                    >
+                      {pwBusy ? "Updating Password…" : "Update Password"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Real Store Launch & Dummy Orders Management */}
+              <div className="admin-card-box">
+                <div className="admin-card-header">
+                  <div>
+                    <h2>Store Launch & Order Maintenance</h2>
+                    <small style={{ color: "var(--muted)" }}>Clean dummy orders or test transactions before or after production launch</small>
+                  </div>
+                </div>
+
+                <div style={{ padding: "16px", background: "#f8fafc", borderRadius: "8px", border: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
+                  <div>
+                    <strong style={{ fontSize: "14px", color: "#1e293b", display: "block" }}>Order Database Status</strong>
+                    <span style={{ fontSize: "13px", color: ordersTotal === 0 ? "#16a34a" : "#ca8a04", fontWeight: 600 }}>
+                      {ordersTotal === 0 ? "✓ Clean Database (0 Dummy Orders - Ready for Real Customers)" : `⚠️ ${ordersTotal} orders currently recorded in database`}
+                    </span>
+                  </div>
+                  <button
+                    className="btn outline small"
+                    onClick={handleClearAllOrders}
+                    disabled={ordersTotal === 0}
+                    style={{
+                      color: ordersTotal === 0 ? "#94a3b8" : "#dc2626",
+                      borderColor: ordersTotal === 0 ? "#cbd5e1" : "#fca5a5",
+                      cursor: ordersTotal === 0 ? "not-allowed" : "pointer"
+                    }}
+                  >
+                    🗑️ Clear Dummy Orders
+                  </button>
                 </div>
               </div>
             </div>
@@ -1801,7 +2094,7 @@ function AddBookFull({
 // ---------------------------------------------------------------------------
 // ORDER TABLE
 // ---------------------------------------------------------------------------
-function OrderTable({ orders }: { orders: any[] }) {
+function OrderTable({ orders, onDelete }: { orders: any[]; onDelete?: (id: string) => void }) {
   return (
     <div className="table-wrap">
       <table>
@@ -1814,6 +2107,7 @@ function OrderTable({ orders }: { orders: any[] }) {
             <th>Payment Status</th>
             <th>Razorpay Ref</th>
             <th>Date</th>
+            {onDelete && <th>Action</th>}
           </tr>
         </thead>
         <tbody>
@@ -1868,6 +2162,18 @@ function OrderTable({ orders }: { orders: any[] }) {
               <td style={{ fontSize: "11px", color: "var(--muted)" }}>
                 {new Date(o.createdAt).toLocaleDateString("en-IN")}
               </td>
+              {onDelete && (
+                <td>
+                  <button
+                    className="btn outline small"
+                    onClick={() => onDelete(o._id)}
+                    style={{ color: "#dc2626", borderColor: "#fca5a5", fontSize: "11px", padding: "3px 8px" }}
+                    title="Delete order"
+                  >
+                    Delete
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
