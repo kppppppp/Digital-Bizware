@@ -628,13 +628,17 @@ async function bootstrap() {
   if (!process.env.BREVO_API_KEY) console.warn("Brevo is not configured; transactional emails are logged to console in development");
 }
 
-app.get(["/health", "/api/health"], (_req, res) => res.json({
-  ok: true,
-  status: "healthy",
-  service: "classes-api",
-  uptime: Math.round(process.uptime()),
-  timestamp: new Date().toISOString()
-}));
+app.get(["/health", "/api/health"], (_req, res) => {
+  const isHealthy = mongoose.connection.readyState === 1;
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.status(isHealthy ? 200 : 503).json({
+    ok: isHealthy,
+    status: isHealthy ? "healthy" : "degraded",
+    service: "classes-api",
+    uptime: Math.round(process.uptime()),
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Authorized local file download handler
 app.get("/api/downloads/:token", asyncRoute(async (req, res) => {
@@ -774,13 +778,23 @@ app.post("/api/auth/reset-password", authLimiter, asyncRoute(async (req, res) =>
 let categoriesCache: { data: any; timestamp: number } | null = null;
 const CATEGORIES_CACHE_TTL_MS = 60_000;
 
+// High-performance public books cache (reduces Atlas query latency)
+const booksCache = new Map<string, { data: any; timestamp: number }>();
+const BOOKS_CACHE_TTL_MS = 45_000;
+
+function invalidateBooksCache() {
+  booksCache.clear();
+}
+
 function invalidateCategoriesCache() {
   categoriesCache = null;
+  booksCache.clear();
 }
 
 // Public & Admin Categories API
 app.get("/api/categories", asyncRoute(async (_req, res) => {
   if (categoriesCache && (Date.now() - categoriesCache.timestamp) < CATEGORIES_CACHE_TTL_MS) {
+    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=120, stale-while-revalidate=300");
     return res.json(categoriesCache.data);
   }
 
@@ -813,6 +827,7 @@ app.get("/api/categories", asyncRoute(async (_req, res) => {
     : result;
 
   categoriesCache = { data: finalResult, timestamp: Date.now() };
+  res.setHeader("Cache-Control", "public, max-age=60, s-maxage=120, stale-while-revalidate=300");
   res.json(finalResult);
 }));
 
@@ -892,6 +907,15 @@ app.get("/api/books", asyncRoute(async (req, res) => {
   const tag = String(req.query.tag || "").trim();
   const sort = String(req.query.sort || "popular");
 
+  const cacheKey = `${page}:${limit}:${category}:${tag}:${sort}`;
+  if (!q && booksCache.has(cacheKey)) {
+    const cached = booksCache.get(cacheKey)!;
+    if (Date.now() - cached.timestamp < BOOKS_CACHE_TTL_MS) {
+      res.setHeader("Cache-Control", "public, max-age=45, s-maxage=60, stale-while-revalidate=120");
+      return res.json(cached.data);
+    }
+  }
+
   const filter: any = { status: "published" };
   if (category) filter.category = category;
   if (tag) filter.tag = tag;
@@ -908,10 +932,23 @@ app.get("/api/books", asyncRoute(async (req, res) => {
   };
 
   const [items, total] = await Promise.all([
-    Book.find(filter).sort(sorts[sort] || sorts.popular).skip((page - 1) * limit).limit(limit),
+    Book.find(filter)
+      .sort(sorts[sort] || sorts.popular)
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .select("-pdfStorageKey -pdfOriginalFilename -pdfFileName")
+      .lean(),
     Book.countDocuments(filter)
   ]);
-  res.json({ items: items.map(publicBook), page, limit, total, totalPages: Math.ceil(total / limit) || 1 });
+  const responseData = { items: items.map(publicBook), page, limit, total, totalPages: Math.ceil(total / limit) || 1 };
+
+  if (!q) {
+    if (booksCache.size > 200) booksCache.clear();
+    booksCache.set(cacheKey, { data: responseData, timestamp: Date.now() });
+  }
+
+  res.setHeader("Cache-Control", "public, max-age=45, s-maxage=60, stale-while-revalidate=120");
+  res.json(responseData);
 }));
 
 app.get("/api/books/:slug/cover", asyncRoute(async (req, res) => {
@@ -927,8 +964,9 @@ app.get("/api/books/:slug/cover", asyncRoute(async (req, res) => {
 }));
 
 app.get("/api/books/:slug", asyncRoute(async (req, res) => {
-  const b = await Book.findOne({ slug: req.params.slug, status: "published" });
+  const b = await Book.findOne({ slug: req.params.slug, status: "published" }).lean();
   if (!b) return res.status(404).json({ error: "Book not found" });
+  res.setHeader("Cache-Control", "public, max-age=60, s-maxage=120, stale-while-revalidate=300");
   res.json(publicBook(b));
 }));
 
@@ -1646,5 +1684,6 @@ export {
   requireStudent,
   processPayment,
   invalidateSession,
-  invalidateCategoriesCache
+  invalidateCategoriesCache,
+  invalidateBooksCache
 };

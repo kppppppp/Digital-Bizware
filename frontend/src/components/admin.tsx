@@ -404,7 +404,7 @@ export function AdminPage() {
             <div style={{ margin: "16px 0 8px", borderTop: "1px solid rgba(255,255,255,0.08)" }} />
 
             <Link
-              href="/"
+              href="https://www.webturelab.com"
               target="_blank"
               className="admin-nav-link"
               style={{ color: "#94a3b8" }}

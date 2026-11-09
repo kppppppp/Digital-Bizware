@@ -55,6 +55,12 @@ const BookSchema = new Schema({
 }, { timestamps: true });
 
 BookSchema.index({ title: "text", author: "text", description: "text" });
+BookSchema.index({ status: 1, tag: 1 });
+BookSchema.index({ status: 1, category: 1 });
+BookSchema.index({ status: 1, rating: -1, reviewCount: -1 });
+BookSchema.index({ status: 1, createdAt: -1 });
+BookSchema.index({ status: 1, sellingPrice: 1 });
+BookSchema.index({ status: 1, sellingPrice: -1 });
 
 const OrderSchema = new Schema({
   userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },

@@ -33,7 +33,11 @@ function CursorFollower() {
   const ballRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined" || window.matchMedia("(pointer: coarse)").matches) {
+    if (
+      typeof window === "undefined" ||
+      window.matchMedia("(pointer: coarse)").matches ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
       return;
     }
 
@@ -41,8 +45,31 @@ function CursorFollower() {
     let targetY = -100;
     let currentX = -100;
     let currentY = -100;
-    let animId: number;
+    let animId = 0;
     let isVisible = false;
+    let isRunning = false;
+
+    const loop = () => {
+      const dx = targetX - currentX;
+      const dy = targetY - currentY;
+      currentX += dx * 0.18;
+      currentY += dy * 0.18;
+      if (ballRef.current) {
+        ballRef.current.style.transform = `translate3d(${currentX}px, ${currentY}px, 0) translate(-50%, -50%)`;
+      }
+      if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
+        animId = requestAnimationFrame(loop);
+      } else {
+        isRunning = false;
+      }
+    };
+
+    const startLoop = () => {
+      if (!isRunning) {
+        isRunning = true;
+        animId = requestAnimationFrame(loop);
+      }
+    };
 
     const onMouseMove = (e: MouseEvent) => {
       targetX = e.clientX;
@@ -63,6 +90,7 @@ function CursorFollower() {
       } else {
         ballRef.current?.classList.remove("hovered");
       }
+      startLoop();
     };
 
     const onMouseLeave = () => {
@@ -75,22 +103,12 @@ function CursorFollower() {
       if (ballRef.current) ballRef.current.style.opacity = "1";
     };
 
-    const loop = () => {
-      currentX += (targetX - currentX) * 0.18;
-      currentY += (targetY - currentY) * 0.18;
-      if (ballRef.current) {
-        ballRef.current.style.transform = `translate3d(${currentX}px, ${currentY}px, 0) translate(-50%, -50%)`;
-      }
-      animId = requestAnimationFrame(loop);
-    };
-    animId = requestAnimationFrame(loop);
-
     window.addEventListener("mousemove", onMouseMove, { passive: true });
     document.addEventListener("mouseleave", onMouseLeave);
     document.addEventListener("mouseenter", onMouseEnter);
 
     return () => {
-      cancelAnimationFrame(animId);
+      if (animId) cancelAnimationFrame(animId);
       window.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseleave", onMouseLeave);
       document.removeEventListener("mouseenter", onMouseEnter);
@@ -542,17 +560,31 @@ export function Cover({
   book,
   className = "",
   style,
+  priority = false,
 }: {
-  book: Partial<BookRecord>;
+  book?: Partial<BookRecord> | null;
   className?: string;
   style?: React.CSSProperties;
+  priority?: boolean;
 }) {
+  if (!book) {
+    return (
+      <div className={`cover shared-cover ${className}`} style={style}>
+        <div className="cover-art" style={{ background: "#F0F0EB" }} />
+      </div>
+    );
+  }
   return (
     <div className={`cover shared-cover ${className}`} style={style}>
       <img
         className="cover-art"
         src={coverUrl(book)}
         alt={`${book.title || "Digital Bizware"} eBook cover`}
+        loading={priority ? "eager" : "lazy"}
+        fetchPriority={priority ? "high" : "auto"}
+        decoding={priority ? "sync" : "async"}
+        width={340}
+        height={450}
       />
       {book.tag && <span className="badge">{book.tag}</span>}
       <span className="cover-subject">{book.category || "Digital Edition"}</span>
@@ -629,14 +661,21 @@ function ServiceMessage({ error }: { error: string }) {
   );
 }
 
-function useCatalogue(param = "") {
-  const [books, setBooks] = useState<BookRecord[]>([]);
-  const [total, setTotal] = useState(0);
+function useCatalogue(param = "", initialData: BookRecord[] = []) {
+  const [books, setBooks] = useState<BookRecord[]>(initialData);
+  const [total, setTotal] = useState(initialData.length);
   const [totalPages, setTotalPages] = useState(1);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(initialData.length === 0);
   const [error, setError] = useState("");
+  const isFirstMount = useRef(true);
 
   useEffect(() => {
+    if (isFirstMount.current && initialData.length > 0) {
+      isFirstMount.current = false;
+      return;
+    }
+    isFirstMount.current = false;
+
     let ok = true;
     setLoading(true);
     getBooks(new URLSearchParams(param))
@@ -659,13 +698,24 @@ function useCatalogue(param = "") {
 /* ==========================================================================
    HOMEPAGE COMPONENT
    ========================================================================== */
-export function HomePage() {
-  const { books, error, loading } = useCatalogue("limit=20");
-  const fresh = useCatalogue("limit=4&tag=New&sort=newest").books;
+export function HomePage({
+  initialBooks = [],
+  initialFresh = [],
+}: {
+  initialBooks?: BookRecord[];
+  initialFresh?: BookRecord[];
+} = {}) {
+  const { books, error, loading } = useCatalogue("limit=20", initialBooks);
+  const freshCatalog = useCatalogue(
+    initialFresh.length > 0 ? "" : "limit=4&tag=New&sort=newest",
+    initialFresh
+  );
+  const fresh = initialFresh.length > 0 ? initialFresh : freshCatalog.books;
   const { add } = useCart();
 
   // Real bestseller books from backend
   const bestsellers = useMemo(() => {
+    if (!books || books.length === 0) return [];
     const tagged = books.filter(b => b.tag === "Bestseller");
     if (tagged.length >= 2) return tagged;
     return books.slice(0, 6);
@@ -684,6 +734,23 @@ export function HomePage() {
     }, 280);
   };
 
+  // Preload the next 1-2 slides so slideshow transitions have zero image loading delay
+  useEffect(() => {
+    if (bestsellers.length <= 1) return;
+    const nextIndices = [
+      (activeSlide + 1) % bestsellers.length,
+      (activeSlide + 2) % bestsellers.length,
+    ];
+    nextIndices.forEach(idx => {
+      const b = bestsellers[idx];
+      const url = b ? coverUrl(b) : null;
+      if (url && typeof window !== "undefined") {
+        const img = new window.Image();
+        img.src = url;
+      }
+    });
+  }, [activeSlide, bestsellers]);
+
   // Auto-advance slideshow smoothly every 4.8 seconds
   useEffect(() => {
     if (bestsellers.length <= 1 || isPaused) return;
@@ -693,18 +760,10 @@ export function HomePage() {
     return () => clearInterval(interval);
   }, [bestsellers.length, isPaused, activeSlide, isTransitioning]);
 
-  const currentBook = bestsellers[activeSlide] || books[0] || {
-    _id: "default",
-    slug: "the-complete-digital-marketing-playbook",
-    title: "The Complete Digital Marketing Playbook",
-    author: "Ananya Mehta",
-    category: "Digital Marketing",
-    sellingPrice: 549,
-    originalPrice: 799,
-    rating: 4.9,
-    coverImageUrl: "/assets/ebook-cover.png",
-    tag: "Bestseller",
-  };
+  // Deterministic current bestseller book matching actual data (never a fake fallback book)
+  const currentBook = bestsellers.length > 0
+    ? bestsellers[activeSlide % bestsellers.length]
+    : (books.length > 0 ? books[0] : null);
 
   const nextSlide = () => {
     if (!bestsellers.length) return;
@@ -716,8 +775,8 @@ export function HomePage() {
     transitionToSlide((activeSlide - 1 + bestsellers.length) % bestsellers.length);
   };
 
-  const featured = bestsellers.slice(0, 4);
-  const featuredBook = currentBook;
+  const featured = bestsellers.length > 0 ? bestsellers.slice(0, 4) : books.slice(0, 4);
+  const featuredBook = currentBook || books[0] || null;
 
   return (
     <main>
@@ -773,81 +832,101 @@ export function HomePage() {
             <div className="hero-yellow-panel" />
 
             {/* Rotating Bestseller eBook Presentation with Smooth Transition */}
-            <div className="hero-slideshow-card">
-              <div className={`slideshow-slide ${isTransitioning ? "transitioning-out" : "transitioning-in"}`}>
-                <div className="slideshow-cover-box">
-                  <Link href={`/book/${currentBook.slug}`}>
-                    <Cover book={currentBook} />
-                  </Link>
-                </div>
-
-                <div className="slideshow-info">
-                  <span className="slideshow-pill">
-                    ★ {currentBook.tag || "BESTSELLER"} #0{activeSlide + 1}
-                  </span>
-                  <h3>
-                    <Link href={`/book/${currentBook.slug}`}>{currentBook.title}</Link>
-                  </h3>
-                  <p className="slideshow-author">
-                    By <strong>{currentBook.author}</strong> · {currentBook.category}
-                  </p>
-
-                  <div className="slideshow-price-row">
-                    <span className="slideshow-price">{money(currentBook.sellingPrice)}</span>
-                    {currentBook.originalPrice > currentBook.sellingPrice && (
-                      <span className="slideshow-oldprice">{money(currentBook.originalPrice)}</span>
-                    )}
+            {currentBook ? (
+              <div className="hero-slideshow-card">
+                <div className={`slideshow-slide ${isTransitioning ? "transitioning-out" : "transitioning-in"}`}>
+                  <div className="slideshow-cover-box">
+                    <Link href={`/book/${currentBook.slug}`}>
+                      <Cover book={currentBook} priority={true} />
+                    </Link>
                   </div>
 
-                  <div className="slideshow-actions">
-                    <Link
-                      className="btn small btn-yellow"
-                      href={`/book/${currentBook.slug}`}
-                    >
-                      View Book ↗
-                    </Link>
+                  <div className="slideshow-info">
+                    <span className="slideshow-pill">
+                      ★ {currentBook.tag || "BESTSELLER"} #0{activeSlide + 1}
+                    </span>
+                    <h3>
+                      <Link href={`/book/${currentBook.slug}`}>{currentBook.title}</Link>
+                    </h3>
+                    <p className="slideshow-author">
+                      By <strong>{currentBook.author}</strong> · {currentBook.category}
+                    </p>
+
+                    <div className="slideshow-price-row">
+                      <span className="slideshow-price">{money(currentBook.sellingPrice)}</span>
+                      {currentBook.originalPrice > currentBook.sellingPrice && (
+                        <span className="slideshow-oldprice">{money(currentBook.originalPrice)}</span>
+                      )}
+                    </div>
+
+                    <div className="slideshow-actions">
+                      <Link
+                        className="btn small btn-yellow"
+                        href={`/book/${currentBook.slug}`}
+                      >
+                        View Book ↗
+                      </Link>
+                      <button
+                        className="btn small outline"
+                        onClick={() => add(currentBook)}
+                      >
+                        Add to Bag
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Slideshow Previous/Next & Dots Pagination */}
+                {bestsellers.length > 1 && (
+                  <div className="slideshow-footer-nav">
                     <button
-                      className="btn small outline"
-                      onClick={() => add(currentBook)}
+                      className="slideshow-arrow-btn"
+                      onClick={prevSlide}
+                      aria-label="Previous bestseller"
                     >
-                      Add to Bag
+                      ‹
                     </button>
+
+                    <div className="slideshow-dots">
+                      {bestsellers.map((_, i) => (
+                        <button
+                          key={i}
+                          className={`slideshow-dot ${i === activeSlide ? "active" : ""}`}
+                          onClick={() => transitionToSlide(i)}
+                          aria-label={`Go to slide ${i + 1}`}
+                        />
+                      ))}
+                    </div>
+
+                    <button
+                      className="slideshow-arrow-btn"
+                      onClick={nextSlide}
+                      aria-label="Next bestseller"
+                    >
+                      ›
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="hero-slideshow-card hero-skeleton-card" aria-busy="true">
+                <div className="slideshow-slide">
+                  <div className="slideshow-cover-box">
+                    <div className="skeleton-cover skeleton-shimmer" />
+                  </div>
+                  <div className="slideshow-info">
+                    <div className="skeleton-line skeleton-pill-line skeleton-shimmer" />
+                    <div className="skeleton-line skeleton-title-line skeleton-shimmer" />
+                    <div className="skeleton-line skeleton-author-line skeleton-shimmer" />
+                    <div className="skeleton-line skeleton-price-line skeleton-shimmer" />
+                    <div className="skeleton-actions">
+                      <div className="skeleton-btn skeleton-shimmer" />
+                      <div className="skeleton-btn skeleton-shimmer" />
+                    </div>
                   </div>
                 </div>
               </div>
-
-              {/* Slideshow Previous/Next & Dots Pagination */}
-              {bestsellers.length > 1 && (
-                <div className="slideshow-footer-nav">
-                  <button
-                    className="slideshow-arrow-btn"
-                    onClick={prevSlide}
-                    aria-label="Previous bestseller"
-                  >
-                    ‹
-                  </button>
-
-                  <div className="slideshow-dots">
-                    {bestsellers.map((_, i) => (
-                      <button
-                        key={i}
-                        className={`slideshow-dot ${i === activeSlide ? "active" : ""}`}
-                        onClick={() => transitionToSlide(i)}
-                        aria-label={`Go to slide ${i + 1}`}
-                      />
-                    ))}
-                  </div>
-
-                  <button
-                    className="slideshow-arrow-btn"
-                    onClick={nextSlide}
-                    aria-label="Next bestseller"
-                  >
-                    ›
-                  </button>
-                </div>
-              )}
-            </div>
+            )}
           </div>
         </div>
       </section>
@@ -988,7 +1067,7 @@ export function HomePage() {
 
           <div className="promo-visual">
             <div className="promo-book-box">
-              <Cover book={featuredBook} />
+              {featuredBook ? <Cover book={featuredBook} /> : <div className="skeleton-cover skeleton-shimmer" />}
             </div>
           </div>
         </div>
@@ -1340,17 +1419,18 @@ export function CataloguePage({ categorySlug = "" }: { categorySlug?: string }) 
 /* ==========================================================================
    PRODUCT DETAILS PAGE
    ========================================================================== */
-export function ProductPage({ slug }: { slug: string }) {
-  const [book, setBook] = useState<BookRecord | null>(null);
+export function ProductPage({ slug, initialBook }: { slug: string; initialBook?: BookRecord | null }) {
+  const [book, setBook] = useState<BookRecord | null>(initialBook || null);
   const [error, setError] = useState("");
   const { add } = useCart();
   const router = useRouter();
 
   useEffect(() => {
+    if (initialBook && initialBook.slug === slug) return;
     api<BookRecord>(`/books/${slug}`)
       .then(setBook)
       .catch(e => setError(e.message));
-  }, [slug]);
+  }, [slug, initialBook]);
 
   if (!book) {
     return (
@@ -1389,7 +1469,7 @@ export function ProductPage({ slug }: { slug: string }) {
 
         <div className="detail-grid">
           <div className="detail-cover-box">
-            <Cover book={book} />
+            <Cover book={book} priority={true} />
           </div>
 
           <div className="detail-copy">
