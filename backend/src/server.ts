@@ -936,7 +936,7 @@ app.get("/api/books", asyncRoute(async (req, res) => {
       .sort(sorts[sort] || sorts.popular)
       .skip((page - 1) * limit)
       .limit(limit)
-      .select("-pdfStorageKey -pdfOriginalFilename -pdfFileName")
+      .select("-pdfOriginalFilename -pdfFileName")
       .lean(),
     Book.countDocuments(filter)
   ]);
@@ -964,7 +964,8 @@ app.get("/api/books/:slug/cover", asyncRoute(async (req, res) => {
 }));
 
 app.get("/api/books/:slug", asyncRoute(async (req, res) => {
-  const b = await Book.findOne({ slug: req.params.slug, status: "published" }).lean();
+  const query = Book.findOne({ slug: req.params.slug, status: "published" });
+  const b = typeof (query as any)?.lean === "function" ? await (query as any).lean() : await query;
   if (!b) return res.status(404).json({ error: "Book not found" });
   res.setHeader("Cache-Control", "public, max-age=60, s-maxage=120, stale-while-revalidate=300");
   res.json(publicBook(b));
@@ -1471,6 +1472,7 @@ app.post("/api/admin/books/:id/upload-pdf", adminAuth, upload.single("file"), as
   if (oldKey && oldKey !== "ebooks/seed-sample.pdf") {
     await deletePdf(oldKey).catch(error => console.error("Old PDF cleanup failed", error instanceof Error ? error.message : "unknown"));
   }
+  invalidateCategoriesCache();
   await AuditLog.create({ adminId: req.authUser._id, action: "book.pdf.upload", targetId: String(book._id), details: { size: file.size, filename: book.pdfOriginalFilename } });
   res.json({ fileName: book.pdfOriginalFilename, fileSize: file.size, status: "uploaded" });
 }));
@@ -1502,6 +1504,7 @@ app.post("/api/admin/books/:id/upload-cover", adminAuth, coverUpload.single("fil
   if (oldPublicId) {
     await deleteCover(oldPublicId).catch(error => console.error("Old cover cleanup failed", error instanceof Error ? error.message : "unknown"));
   }
+  invalidateCategoriesCache();
   await AuditLog.create({ adminId: req.authUser._id, action: "book.cover.upload", targetId: String(book._id), details: { publicId: uploaded.publicId } });
   res.json(adminBook(book));
 }));

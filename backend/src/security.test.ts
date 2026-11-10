@@ -179,6 +179,29 @@ describe("administrator uploads and catalogue", () => {
     const r = await request(app).post("/api/admin/books").set("Cookie", COOKIE).set("X-Classes-Request", "web").send({ title: "New guide", description: "A useful sample guide for learners.", author: "Editor", category: "SEO", originalPrice: 100, sellingPrice: 80, status: "published" });
     expect(r.status).toBe(409); expect(Book.create).not.toHaveBeenCalled();
   });
+  it("public catalogue returns availableForPurchase: true for books with PDF while omitting private storage keys", async () => {
+    vi.spyOn(Book, "find").mockReturnValue({
+      sort: () => ({
+        skip: () => ({
+          limit: () => ({
+            select: () => ({
+              lean: () => Promise.resolve([
+                { _id: BOOK, title: "Book With PDF", slug: "book-with-pdf", pdfStorageKey: "ebooks/some-key.pdf", status: "published" },
+                { _id: "660000000000000000000099", title: "Book Without PDF", slug: "book-without-pdf", pdfStorageKey: "", status: "published" }
+              ])
+            })
+          })
+        })
+      })
+    } as any);
+    vi.spyOn(Book, "countDocuments").mockResolvedValue(2 as any);
+    const r = await request(app).get("/api/books?sort=newest");
+    expect(r.status).toBe(200);
+    expect(r.body.items).toHaveLength(2);
+    expect(r.body.items[0].availableForPurchase).toBe(true);
+    expect(r.body.items[0].pdfStorageKey).toBeUndefined();
+    expect(r.body.items[1].availableForPurchase).toBe(false);
+  });
   it("keeps unique ownership constraint on purchases", () => {
     expect(Purchase.schema.indexes().some(([fields, options]: any) => fields.userId === 1 && fields.bookId === 1 && options.unique)).toBe(true);
   });
