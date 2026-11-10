@@ -3,7 +3,8 @@ import type { BookRecord } from "@classes/shared";
 import { API, coverUrl } from "@/lib/api";
 import type { Metadata } from "next";
 
-export const revalidate = 60;
+export const revalidate = 0;
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "DIGITAL BIZWARE — Knowledge That Moves You Forward",
@@ -15,11 +16,11 @@ async function getInitialCatalog(): Promise<{ books: BookRecord[]; fresh: BookRe
   try {
     const [booksRes, freshRes] = await Promise.allSettled([
       fetch(`${API}/books?limit=24`, {
-        next: { revalidate: 60 },
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
       }),
       fetch(`${API}/books?limit=4&tag=New&sort=newest`, {
-        next: { revalidate: 60 },
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
       }),
     ]);

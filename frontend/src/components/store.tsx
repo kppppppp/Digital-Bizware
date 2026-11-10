@@ -633,10 +633,10 @@ function ProductCard({ book }: { book: BookRecord }) {
           </Link>
           <button
             className="btn small btn-yellow"
-            disabled={!book.availableForPurchase}
+            disabled={book.availableForPurchase === false}
             onClick={() => add(book)}
           >
-            {!book.availableForPurchase
+            {book.availableForPurchase === false
               ? "Coming Soon"
               : isInCart
               ? "In Bag ✓"
@@ -1503,14 +1503,14 @@ export function ProductPage({ slug, initialBook }: { slug: string; initialBook?:
             <div className="detail-buy">
               <button
                 className="btn btn-yellow"
-                disabled={!book.availableForPurchase}
+                disabled={book.availableForPurchase === false}
                 onClick={() => add(book)}
               >
-                {book.availableForPurchase ? "Add to Bag 🛍️" : "Coming Soon"}
+                {book.availableForPurchase === false ? "Coming Soon" : "Add to Bag 🛍️"}
               </button>
               <button
                 className="btn outline"
-                disabled={!book.availableForPurchase}
+                disabled={book.availableForPurchase === false}
                 onClick={buy}
               >
                 Instant Buy Now ⚡
