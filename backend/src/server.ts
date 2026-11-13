@@ -373,7 +373,6 @@ const studentAuth = [requireAuth, requireStudent];
 const adminAuth = [requireAuth, requireAdmin];
 
 const createSession = async (user: any, res: Response): Promise<string> => {
-  if (!user.emailVerified) throw Object.assign(new Error("Verify your email before signing in"), { status: 403 });
   if (user.isActive === false || user.accountStatus !== "active") throw Object.assign(new Error("This account is suspended"), { status: 403 });
   return await issue(res, user);
 };
@@ -662,68 +661,60 @@ app.post("/api/auth/register", authLimiter, asyncRoute(async (req, res) => {
   }).parse(req.body);
   const email = body.email.toLowerCase();
   if (await User.exists({ email })) return res.status(409).json({ error: "An account with this email already exists" });
-  const token = crypto.randomBytes(32).toString("hex");
   const user = await User.create({
     name: body.name,
     email,
     phone: body.phone,
     passwordHash: await bcrypt.hash(body.password, 12),
     role: "student",
-    emailVerified: false,
-    verifyTokenHash: sha(token),
-    verifyExpires: new Date(Date.now() + 24 * 3600e3)
+    emailVerified: true
   });
   const currentWebOrigin = resolveWebOrigin(req);
-  const verifyUrl = `${currentWebOrigin}/verify?token=${token}`;
-  if (!process.env.BREVO_API_KEY && !isProd) {
-    console.log(`\n[DEV EMAIL] Student verification URL for ${email}: ${verifyUrl}\n`);
-  }
-  await bestEffortEmail("Verification", () => sendVerification({ email, name: user.name }, verifyUrl));
   await bestEffortEmail("Welcome", () => sendWelcome({ email, name: user.name }, `${currentWebOrigin}/login`));
+  const token = await createSession(user, res);
   res.status(201).json({
-    message: "Account created. Check your email to verify your address.",
-    ...(!isProd ? { devVerifyUrl: verifyUrl } : {})
+    message: "Account created successfully",
+    user: { name: user.name, email: user.email, role: user.role },
+    token
   });
 }));
 
 app.post("/api/auth/resend-verification", authLimiter, asyncRoute(async (req, res) => {
   const email = z.string().email().parse(req.body.email).toLowerCase();
-  const user = await User.findOne({ email, emailVerified: false });
-  let verifyUrl: string | undefined;
-  if (user) {
-    const token = crypto.randomBytes(32).toString("hex");
-    user.verifyTokenHash = sha(token);
-    user.verifyExpires = new Date(Date.now() + 24 * 3600e3);
+  const user = await User.findOne({ email });
+  if (user && !user.emailVerified) {
+    user.emailVerified = true;
+    user.verifyTokenHash = undefined;
+    user.verifyExpires = undefined;
     await user.save();
-    const currentWebOrigin = resolveWebOrigin(req);
-    verifyUrl = `${currentWebOrigin}/verify?token=${token}`;
-    if (!process.env.BREVO_API_KEY && !isProd) {
-      console.log(`\n[DEV EMAIL] Resent verification URL for ${email}: ${verifyUrl}\n`);
-    }
-    await bestEffortEmail("Verification", () => sendVerification({ email, name: user.name }, verifyUrl!));
   }
   res.json({
-    message: "If the account needs verification, a new link has been sent.",
-    ...(!isProd && verifyUrl ? { devVerifyUrl: verifyUrl } : {})
+    message: "Email verification is not required. You can sign in directly."
   });
 }));
 
 app.post("/api/auth/verify-email", authLimiter, asyncRoute(async (req, res) => {
   const token = z.string().min(32).parse(req.body.token);
-  const user = await User.findOne({ verifyTokenHash: sha(token), verifyExpires: { $gt: new Date() } });
-  if (!user) return res.status(400).json({ error: "Verification link is invalid or expired" });
-  user.emailVerified = true;
-  user.verifyTokenHash = undefined;
-  user.verifyExpires = undefined;
-  await user.save();
-  const sessionToken = await issue(res, user);
-  res.json({ message: "Email verified", user: { name: user.name, email: user.email, role: user.role }, token: sessionToken });
+  const user = await User.findOne({ verifyTokenHash: sha(token) });
+  if (user) {
+    user.emailVerified = true;
+    user.verifyTokenHash = undefined;
+    user.verifyExpires = undefined;
+    await user.save();
+    const sessionToken = await issue(res, user);
+    return res.json({ message: "Email verified", user: { name: user.name, email: user.email, role: user.role }, token: sessionToken });
+  }
+  res.json({ message: "Email verification is not required. You can sign in directly." });
 }));
 
 app.post("/api/auth/login", authLimiter, asyncRoute(async (req, res) => {
   const b = z.object({ email: z.string().email(), password: z.string().min(1).max(128) }).parse(req.body);
   const user = await User.findOne({ email: b.email.toLowerCase() });
   if (!user || !(await bcrypt.compare(b.password, user.passwordHash))) return res.status(401).json({ error: "Email or password is incorrect" });
+  if (!user.emailVerified) {
+    user.emailVerified = true;
+    await user.save();
+  }
   const token = await createSession(user, res);
   res.json({ user: { name: user.name, email: user.email, role: user.role }, token });
 }));

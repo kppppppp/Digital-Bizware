@@ -35,6 +35,7 @@ function paidOrder() { return { _id: "order", userId: A, razorpayOrderId: "order
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.spyOn(Session, "create").mockResolvedValue({} as any);
   mocks.signPdfDownload.mockResolvedValue("https://private-r2.example/signed.pdf?sig=temporary");
   mocks.putPdf.mockResolvedValue(undefined);
   mocks.deletePdf.mockResolvedValue(undefined);
@@ -266,9 +267,9 @@ describe("origin resolution and verification email links", () => {
     expect(resolveWebOrigin(fakeReq)).toBe("https://webturelab.com");
   });
 
-  it("uses request origin for verification emails during registration", async () => {
+  it("registers student directly and sends welcome email without requiring verification", async () => {
     vi.spyOn(User, "exists").mockResolvedValue(null as any);
-    vi.spyOn(User, "create").mockResolvedValue({ name: "Asha", email: "asha@example.com" } as any);
+    vi.spyOn(User, "create").mockResolvedValue({ _id: "65f000000000000000000020", name: "Asha", email: "asha@example.com", role: "student", emailVerified: true, isActive: true, accountStatus: "active" } as any);
 
     const r = await request(app)
       .post("/api/auth/register")
@@ -277,13 +278,12 @@ describe("origin resolution and verification email links", () => {
       .send({ name: "Asha User", email: "asha@example.com", phone: "9876543210", password: "long-secure-password" });
 
     expect(r.status).toBe(201);
-    expect(mocks.sendVerification).toHaveBeenCalledWith(
-      expect.objectContaining({ email: "asha@example.com" }),
-      expect.stringMatching(/^https:\/\/www\.webturelab\.com\/verify\?token=[a-f0-9]{64}$/)
-    );
+    expect(User.create).toHaveBeenCalledWith(expect.objectContaining({ emailVerified: true, role: "student" }));
+    expect(mocks.sendVerification).not.toHaveBeenCalled();
     expect(mocks.sendWelcome).toHaveBeenCalledWith(
       expect.objectContaining({ email: "asha@example.com" }),
       "https://www.webturelab.com/login"
     );
+    expect(r.body).toHaveProperty("token");
   });
 });

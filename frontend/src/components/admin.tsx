@@ -1088,7 +1088,7 @@ export function AdminPage() {
                         {s.email} · Phone: {s.phone || "—"}
                       </span>
                       <span>
-                        Email: {s.emailVerified ? "Verified ✓" : "Unverified"} · Account:{" "}
+                        Email: {s.emailVerified !== false ? "Verified ✓" : "Active ✓"} · Account:{" "}
                         <strong style={{ color: s.accountStatus === "active" ? "#065f46" : "#b94c2a" }}>
                           {s.accountStatus}
                         </strong>{" "}

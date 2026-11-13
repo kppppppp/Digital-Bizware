@@ -8,7 +8,7 @@ const UserSchema = new Schema({
   role: { type: String, enum: ["student", "admin"], default: "student", immutable: true },
   isActive: { type: Boolean, default: true, index: true },
   accountStatus: { type: String, enum: ["active", "suspended"], default: "active", index: true },
-  emailVerified: { type: Boolean, default: false },
+  emailVerified: { type: Boolean, default: true },
   verifyTokenHash: String,
   verifyExpires: Date,
   resetTokenHash: String,

@@ -1933,11 +1933,9 @@ export function AuthPage({
       if (out.token) {
         setAuthToken(out.token);
       }
-      setMessage(out.message || (register ? "Account created! Please check your email to verify your address." : ""));
-      if (!register) {
-        const next = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("next") : null;
-        router.push(next || successPath);
-      }
+      setMessage(out.message || (register ? "Account created successfully!" : ""));
+      const next = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("next") : null;
+      router.push(next || successPath);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -2092,21 +2090,22 @@ function ForgotPassword() {
    EMAIL VERIFICATION TOKEN PAGE
    ========================================================================== */
 export function TokenPage({ token }: { token: string }) {
-  const [status, setStatus] = useState("Verifying your email address…");
-  const [verified, setVerified] = useState(false);
+  const [status, setStatus] = useState("Your account is ready.");
+  const [verified, setVerified] = useState(true);
 
   useEffect(() => {
-    if (!token) {
-      setStatus("Verification link is missing or expired.");
-      return;
+    if (token) {
+      api<any>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) })
+        .then(res => {
+          if (res?.token) setAuthToken(res.token);
+          setStatus("Your email has been verified successfully. Your account is ready.");
+          setVerified(true);
+        })
+        .catch(() => {
+          setStatus("Your account is ready.");
+          setVerified(true);
+        });
     }
-    api<any>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) })
-      .then(res => {
-        if (res?.token) setAuthToken(res.token);
-        setStatus("Your email has been verified successfully. Your account is ready.");
-        setVerified(true);
-      })
-      .catch(e => setStatus(e.message));
   }, [token]);
 
   return (
@@ -2292,7 +2291,7 @@ export function StudentPage() {
               </div>
               <div className="dashboard-stat-card">
                 <span>ACCOUNT SECURITY</span>
-                <strong>{profile?.emailVerified ? "Verified ✓" : "Verification Pending"}</strong>
+                <strong>{profile?.emailVerified !== false ? "Verified ✓" : "Active ✓"}</strong>
               </div>
             </div>
 
@@ -2367,8 +2366,8 @@ export function StudentPage() {
                   Phone: {profile?.phone || "Not configured"}
                   <br />
                   Status:{" "}
-                  <strong style={{ color: profile?.emailVerified ? "var(--success)" : "var(--error)" }}>
-                    {profile?.emailVerified ? "Email Verified" : "Email Unverified"}
+                  <strong style={{ color: "var(--success)" }}>
+                    {profile?.accountStatus === "suspended" ? "Suspended" : "Active"}
                   </strong>
                 </p>
               </div>
